@@ -1,7 +1,7 @@
 import { Router } from "express";
 import passport from "passport";
-import prisma from "../config/prisma";
 import { User as PrismaUser } from "@prisma/client";
+import { signTokenPair } from "../config/jwt";
 
 const router = Router();
 
@@ -28,7 +28,7 @@ router.get(
     const roleChosen = (req as any).roleChosenByUser ?? (req.session as any)?.roleChosen;
 
     console.log(`[Google Auth Callback] Session ID: ${req.sessionID}`);
-    console.log(`[Google Auth Callback] Retrieved: isNew=${isNew} (req:${(req as any).isNewUser}, sess:${(req.session as any)?.isNew}), roleChosen=${roleChosen} (req:${(req as any).roleChosenByUser}, sess:${(req.session as any)?.roleChosen})`);
+    console.log(`[Google Auth Callback] Retrieved: isNew=${isNew}, roleChosen=${roleChosen}`);
 
     // Clean up session variables
     if (req.session) {
@@ -40,18 +40,28 @@ router.get(
 
     const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
     
-    // Check if the user is new and hasn't chosen a role yet
+    // Generate JWT tokens for the authenticated user
+    const tokens = signTokenPair(user.id);
+
+    // Determine redirect path
+    let targetPath: string;
     if (isNew && !roleChosen) {
-      const redirectUrl = `${frontendUrl}/auth/setup-role`;
-      console.log(`[Google Auth] Redirecting new user without chosen role to: ${redirectUrl}`);
-      res.redirect(redirectUrl);
-      return;
+      targetPath = "/auth/callback";
+    } else {
+      targetPath = "/auth/callback";
     }
 
-    const targetPath = user.role === 'CLIENT' ? '/client' : '/freelancer';
-    const redirectUrl = `${frontendUrl}${targetPath}`;
+    // Build redirect URL with tokens as query params
+    const params = new URLSearchParams({
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      isNew: String(!!isNew),
+      roleChosen: String(!!roleChosen),
+    });
+
+    const redirectUrl = `${frontendUrl}${targetPath}?${params.toString()}`;
     
-    console.log(`[Google Auth] Redirecting user to: ${redirectUrl}`);
+    console.log(`[Google Auth] Redirecting user to: ${frontendUrl}${targetPath}`);
     res.redirect(redirectUrl);
   }
 );

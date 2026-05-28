@@ -17,6 +17,7 @@ export interface AuthContextType {
   user: AuthUser | null;
   loading: boolean;
   authenticated: boolean;
+  login: (tokens: { accessToken: string; refreshToken: string }, userData: AuthUser) => void;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -31,9 +32,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const fetchProfile = async () => {
     setLoading(true);
     try {
-      const response = await api.get<{ success: boolean; data: AuthUser }>('/api/v1/user/me', {
-        withCredentials: true,
-      });
+      // Only attempt to fetch if we have a token
+      if (typeof window !== 'undefined' && !localStorage.getItem('accessToken')) {
+        setAuthenticated(false);
+        setUser(null);
+        setLoading(false);
+        return;
+      }
+
+      const response = await api.get<{ success: boolean; data: AuthUser }>('/api/v1/user/me');
 
       if (response.data.success && response.data.data) {
         setUser(response.data.data);
@@ -54,14 +61,28 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     fetchProfile();
   }, []);
 
+  // Direct login — sets tokens + user state without an extra /me call
+  const login = (tokens: { accessToken: string; refreshToken: string }, userData: AuthUser) => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('accessToken', tokens.accessToken);
+      localStorage.setItem('refreshToken', tokens.refreshToken);
+    }
+    setUser(userData);
+    setAuthenticated(true);
+    setLoading(false);
+  };
+
   const logout = async () => {
     try {
-      await api.post('/api/v1/user/logout', {}, { withCredentials: true });
-      setUser(null);
-      setAuthenticated(false);
-      window.location.href = '/';
+      await api.post('/api/v1/user/logout');
     } catch (error) {
-      console.error('Logout failed:', error);
+      console.error('Logout API call failed:', error);
+    } finally {
+      // Always clear tokens and state regardless of API response
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('refreshToken');
+      }
       setUser(null);
       setAuthenticated(false);
       window.location.href = '/';
@@ -70,7 +91,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   return (
     <div style={{ display: 'contents' }}>
-      <AuthContext.Provider value={{ user, loading, authenticated, logout, refreshUser: fetchProfile }}>
+      <AuthContext.Provider value={{ user, loading, authenticated, login, logout, refreshUser: fetchProfile }}>
         {children}
       </AuthContext.Provider>
     </div>

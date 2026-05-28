@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import prisma from "../config/prisma";
 import argon2 from "argon2";
-import crypto from 'crypto';
+import { signTokenPair, verifyRefreshToken } from "../config/jwt";
 
 
 
@@ -31,22 +31,18 @@ export const signUp = async (req: Request, res: Response, next: NextFunction) =>
       },
     });
 
-    // CHANGE HERE: Use req.login instead of req.session.user
-    req.login(newUser, (err) => {
-      if (err) {
-        console.error("Passport login error during signup:", err);
-        return res.status(500).json({ error: "User created but login failed" });
-      }
+    // Generate JWT token pair instead of using session
+    const tokens = signTokenPair(newUser.id);
 
-      return res.status(201).json({
-        message: "User created and logged in successfully",
-        user: {
-          id: newUser.id,
-          email: newUser.email,
-          fullName: newUser.fullName,
-          role: newUser.role,
-        },
-      });
+    return res.status(201).json({
+      message: "User created and logged in successfully",
+      ...tokens,
+      user: {
+        id: newUser.id,
+        email: newUser.email,
+        fullName: newUser.fullName,
+        role: newUser.role,
+      },
     });
   } catch (error) {
     console.error("Signup Error:", error);
@@ -58,7 +54,6 @@ export const signUp = async (req: Request, res: Response, next: NextFunction) =>
 };
 
 export const signIn = async (req: Request, res: Response, next: NextFunction) => {
-  // ... your signIn code is already correct! ...
   try {
     const { email, password } = req.body;
     const user = await prisma.user.findUnique({ where: { email } });
@@ -72,26 +67,20 @@ export const signIn = async (req: Request, res: Response, next: NextFunction) =>
       return res.status(401).json({ error: "Invalid email or password" });
     }
 
-    console.log(`[Login] Attempting login for: ${email}`);
+    console.log(`[Login] Successful login for: ${email}`);
     
-    req.login(user, (err) => {
-      if (err) {
-        console.error("[Login Error] Passport req.login failed:", err);
-        return res.status(500).json({ error: "Could not log in user" });
-      }
-      
-      console.log(`[Login] Success! Session ID after req.login: ${req.sessionID}`);
-      console.log(`[Request Info] Authenticated: ${req.isAuthenticated()}`);
+    // Generate JWT token pair instead of using session
+    const tokens = signTokenPair(user.id);
 
-      return res.status(200).json({
-        message: "Logged in successfully",
-        user: {
-          id: user.id,
-          email: user.email,
-          fullName: user.fullName,
-          role: user.role,
-        },
-      });
+    return res.status(200).json({
+      message: "Logged in successfully",
+      ...tokens,
+      user: {
+        id: user.id,
+        email: user.email,
+        fullName: user.fullName,
+        role: user.role,
+      },
     });
   } catch (error) {
     console.error("[Login Error] Exception caught in signIn:", error);
@@ -107,8 +96,7 @@ export const getMe = async (req: Request, res: Response) => {
       return res.status(200).json({ success: false, data: null });
     }
 
-    // req.user is already populated by passport.deserializeUser
-    // which already does findUnique on the DB.
+    // req.user is already populated by the protect middleware (JWT or passport)
     res.status(200).json({
       success: true,
       data: {
@@ -125,14 +113,39 @@ export const getMe = async (req: Request, res: Response) => {
 };
 
 export const signOut = (req: Request, res: Response) => {
-  req.logout((err: any) => {
-    if (err) return res.status(500).json({ success: false, error: "Logout failed" });
-    
-    req.session.destroy(() => {
-      res.clearCookie("connect.sid", { path: "/" });
-      res.status(200).json({ success: true, message: "Logged out successfully" });
+  // With JWT-based auth, logout is primarily client-side (remove tokens from localStorage).
+  // Server-side we just return success. If there's a Passport session, clean it up too.
+  if (req.session) {
+    req.session.destroy(() => {});
+  }
+  res.status(200).json({ success: true, message: "Logged out successfully" });
+};
+
+export const refreshToken = async (req: Request, res: Response) => {
+  try {
+    const { refreshToken: token } = req.body;
+    if (!token) {
+      return res.status(400).json({ error: "Refresh token is required" });
+    }
+
+    const decoded = verifyRefreshToken(token);
+    const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
+
+    if (!user) {
+      return res.status(401).json({ error: "User not found" });
+    }
+
+    // Issue new token pair
+    const tokens = signTokenPair(user.id);
+
+    return res.status(200).json({
+      success: true,
+      ...tokens,
     });
-  });
+  } catch (error) {
+    console.error("[Refresh Token Error]:", error);
+    return res.status(401).json({ error: "Invalid or expired refresh token" });
+  }
 };
 
 export const setupRole = async (req: Request, res: Response) => {

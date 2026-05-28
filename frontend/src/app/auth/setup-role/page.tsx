@@ -28,7 +28,7 @@ export default function SetupRolePage() {
     setLoading(true);
     setError('');
     try {
-      await api.patch('/api/v1/user/setup-role', { role: selectedRole }, { withCredentials: true });
+      await api.patch('/api/v1/user/setup-role', { role: selectedRole });
       await refreshUser();
       
       if (selectedRole === 'CLIENT') {

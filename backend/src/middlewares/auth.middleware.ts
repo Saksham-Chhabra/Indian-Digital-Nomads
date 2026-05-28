@@ -1,8 +1,34 @@
 import { Request, Response, NextFunction } from "express";
 import { User as PrismaUser } from "@prisma/client";
+import { verifyAccessToken } from "../config/jwt";
+import prisma from "../config/prisma";
 
-export const protect = (req: Request, res: Response, next: NextFunction) => {
-  if (req.isAuthenticated()) {
+export const protect = async (req: Request, res: Response, next: NextFunction) => {
+  // 1. Try JWT from Authorization header first (localStorage flow)
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    const token = authHeader.split(" ")[1];
+    try {
+      const decoded = verifyAccessToken(token);
+      const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
+      if (!user) {
+        return res.status(401).json({
+          success: false,
+          error: "Unauthorized: User not found",
+        });
+      }
+      req.user = user;
+      return next();
+    } catch (err) {
+      return res.status(401).json({
+        success: false,
+        error: "Unauthorized: Invalid or expired token",
+      });
+    }
+  }
+
+  // 2. Fallback to Passport session (for Google OAuth handshake & backward compat)
+  if (req.isAuthenticated && req.isAuthenticated()) {
     return next();
   }
 
@@ -14,7 +40,7 @@ export const protect = (req: Request, res: Response, next: NextFunction) => {
 
 
 export const checkActiveStatus = (req: Request, res: Response, next: NextFunction) => {
-  if (!req.isAuthenticated() || !req.user) {
+  if (!req.user) {
     return next();
   }
 

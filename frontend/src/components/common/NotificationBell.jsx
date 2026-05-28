@@ -28,7 +28,9 @@ const NotificationBell = () => {
 
     // 2. Connect to Socket.io
     const socket = io(process.env.NEXT_PUBLIC_API_BASE_URL, {
-      withCredentials: true,
+      auth: {
+        token: localStorage.getItem('accessToken'),
+      },
     });
 
     socket.on('notification', (newNotification) => {

@@ -1,5 +1,5 @@
 "use client";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useAuthContext } from "@/context/AuthContext";
 import api from "@/lib/api";
 import { useRouter } from "next/navigation";
@@ -49,7 +49,7 @@ export default function AuthPage() {
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   
   // 2. Destructure 'user' and 'loading' from your AuthContext
-  const { user, loading: authLoading, refreshUser } = useAuthContext();
+  const { user, loading: authLoading, refreshUser, login } = useAuthContext();
   const router = useRouter();
 
   // 3. BACK BUTTON GUARD: Automatically forward logged-in users away from the login page
@@ -97,13 +97,18 @@ export default function AuthPage() {
           };
 
       const response = await api.post(endpoint, payload);
-      const userRole: Role = response.data.user?.role; 
+      const userData = response.data.user;
+      const userRole: Role = userData?.role; 
 
-      if (refreshUser) {
-        await refreshUser();
+      // Store tokens and set user state in one step via context
+      if (response.data.accessToken && response.data.refreshToken) {
+        login(
+          { accessToken: response.data.accessToken, refreshToken: response.data.refreshToken },
+          userData
+        );
       }
 
-      // ---> ADMIN & REDIRECTION CONTROLS INTERCEPTOR <---
+      // --->  REDIRECTION BASED ON ROLE <---
       if (userRole === "ADMIN" || userRole === "SUPPORT") {
         router.push("/admin");
       } else if (userRole === "CLIENT") {
