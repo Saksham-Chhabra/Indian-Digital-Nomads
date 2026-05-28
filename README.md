@@ -1,4 +1,4 @@
-Run this command to initialize skills in the backend: 
+Run this command to initialize skills in the backend:- 
 
       npx ts-node prisma/seed.ts
 
